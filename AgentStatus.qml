@@ -1,7 +1,8 @@
 import QtQuick
 import QtQuick.Shapes
-import Quickshell
 import Quickshell.Wayland
+import Quickshell.Hyprland
+import "SessionContext.js" as Context
 import qs.Commons
 import qs.Ui
 
@@ -45,6 +46,20 @@ BarWidget {
 
   // The manifest schema documents these ranges, but the shell stores whatever
   // `omarchy bar set` is given, so they are enforced here too.
+  // Settings are per instance. A second instance in the right bar section can
+  // render the active conversation topic without moving or widening the pills.
+  readonly property bool detailView: setting("view", "sessions") === "detail"
+  readonly property bool showWorkspaceNumber: Context.enabled(setting("showWorkspaceNumber", false))
+  readonly property bool showActiveDetail: Context.enabled(setting("showActiveDetail", false))
+  readonly property bool highlightActive: Context.enabled(setting("highlightActive", false))
+  readonly property bool hideSessionNames: Context.enabled(setting("hideSessionNames", false))
+  readonly property int maxDetailWidth: intSetting("maxDetailWidth", 480, 120, 1000)
+  readonly property var activeWindow: ToplevelManager.activeToplevel
+  readonly property var activeSession: activeWindow
+    ? sessionFor(activeWindow.title, activeWindow.appId) : null
+  readonly property string activeTopic: Context.topic(activeSession)
+  readonly property real workspaceBadgeWidth: Style.font.caption * 3
+
   readonly property int minLabelWidth: 56
   readonly property int maxLabelWidth: intSetting("maxWidth", 180, 60, 480)
   readonly property int maxSessions: intSetting("maxSessions", 4, 1, 12)
@@ -62,7 +77,7 @@ BarWidget {
     for (var i = 0; i < items.length; i++) {
       if (items[i] && sessionFor(items[i].title, items[i].appId)) list.push(items[i])
     }
-    return list
+    return Context.orderWindows(list, function(window) { return root.workspaceFor(window) })
   }
 
   readonly property real markSize: Style.font.body
@@ -78,17 +93,98 @@ BarWidget {
   readonly property real chipSpacing: Style.space(4)
   readonly property real chipChrome: ringSize + Style.space(7) * 2
     + Style.space(4) * 2 + Style.font.caption
+    + (showWorkspaceNumber ? workspaceBadgeWidth + Style.space(4) : 0)
   readonly property real overflowChrome: Style.font.caption * 2.4 + Style.space(7) * 2 + chipSpacing
-  readonly property int budgetSessions: Math.max(1, Math.floor(
-    (widthBudget - overflowChrome) / (chipChrome + minLabelWidth + chipSpacing)))
+  readonly property int budgetSessions: hideSessionNames ? compactBudgetSessions()
+    : Math.max(1, Math.floor(
+      (widthBudget - overflowChrome) / (chipChrome + minLabelWidth + chipSpacing)))
   readonly property int shownSessions: Math.min(sessionWindows.length, maxSessions, budgetSessions)
+  readonly property var visibleSessionWindows: Context.visibleWindows(
+    sessionWindows, shownSessions, activeWindow, highlightActive)
+  // Keep the compositor model as the delegate owner, and only reorder their
+  // positions. Replacing a Repeater array would destroy the pills and reset
+  // their spinner/pulse state whenever a title or workspace changed.
+  property int slotsRevision: 0
+  readonly property var visibleSlots: {
+    var revision = slotsRevision
+    var slots = []
+    for (var i = 0; i < visibleSessionWindows.length; i++) {
+      for (var j = 0; j < sessionRepeater.count; j++) {
+        var slot = sessionRepeater.itemAt(j)
+        if (slot && slot.modelData === visibleSessionWindows[i]) {
+          slots.push(slot)
+          break
+        }
+      }
+    }
+    return slots
+  }
+  readonly property real sessionChipsWidth: {
+    var width = chipSpacing * Math.max(0, visibleSlots.length - 1)
+    for (var i = 0; i < visibleSlots.length; i++) width += visibleSlots[i].width
+    return width
+  }
   readonly property int hiddenSessions: sessionWindows.length - shownSessions
   readonly property int labelWidth: {
+    if (hideSessionNames) return 0
     var budget = widthBudget
       - (hiddenSessions > 0 ? overflowChrome : 0)
       - chipSpacing * Math.max(0, shownSessions - 1)
     var share = budget / Math.max(1, shownSessions) - chipChrome
     return Math.max(minLabelWidth, Math.min(maxLabelWidth, Math.round(share)))
+  }
+
+  FontMetrics {
+    id: compactMetrics
+    font.family: root.textFont
+    font.pixelSize: Style.font.caption
+    font.bold: true
+  }
+
+  function compactChipWidth(window) {
+    // Reserve the ready/attention mark even while working, so a finished
+    // session cannot push its neighbours into overflow. Labels need no space.
+    var statusWidth = Math.ceil(Math.max(compactMetrics.advanceWidth("✓"),
+      compactMetrics.advanceWidth("!")))
+    var width = ringSize + Style.space(7) * 2 + Style.space(4) + statusWidth
+    var label = showWorkspaceNumber ? Context.workspaceLabel(workspaceFor(window)) : ""
+    if (label !== "")
+      width += Math.min(workspaceBadgeWidth, Math.ceil(compactMetrics.advanceWidth(label)))
+        + Style.space(4)
+    return width
+  }
+
+  function compactBudgetSessions() {
+    // Try the largest allowed set first. Count the actual workspace badge
+    // widths, including a focused session promoted out of overflow. A +n
+    // reserve is only needed if there really are hidden sessions.
+    for (var count = Math.min(maxSessions, sessionWindows.length); count > 0; count--) {
+      var windows = Context.visibleWindows(sessionWindows, count, activeWindow, highlightActive)
+      var used = chipSpacing * (count - 1)
+        + (count < sessionWindows.length ? overflowChrome : 0)
+      for (var i = 0; i < windows.length; i++) used += compactChipWidth(windows[i])
+      if (used <= widthBudget) return count
+    }
+    return 1
+  }
+
+  function workspaceFor(window) {
+    // Join by the compositor's window handle, never by a title (two terminals
+    // can have the same title). Missing metadata is left blank.
+    var items = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < items.length; i++) {
+      if (window && items[i].wayland === window) return items[i].workspace
+    }
+    return null
+  }
+
+  function sessionOffset(window) {
+    var offset = 0
+    for (var i = 0; i < visibleSlots.length; i++) {
+      if (visibleSlots[i].modelData === window) return offset
+      offset += visibleSlots[i].width + chipSpacing
+    }
+    return 0
   }
 
   function intSetting(name, fallback, min, max) {
@@ -168,33 +264,56 @@ BarWidget {
 
   function hiddenSessionNames() {
     var names = []
-    for (var i = shownSessions; i < sessionWindows.length; i++) {
+    for (var i = 0; i < sessionWindows.length; i++) {
+      if (visibleSessionWindows.indexOf(sessionWindows[i]) >= 0) continue
       var session = sessionFor(sessionWindows[i].title, sessionWindows[i].appId)
       if (session) names.push(session.name)
     }
     return names.join(" · ")
   }
 
-  // Row skips invisible delegates, so its implicitWidth is 0 with no sessions.
-  visible: !vertical && chipRow.implicitWidth > 0
-  implicitWidth: visible ? chipRow.implicitWidth + Style.space(6) * 2 : 0
+  // Only visible session slots and the overflow chip contribute width.
+  visible: !vertical && (detailView
+    ? showActiveDetail && activeTopic !== "" : chipRow.implicitWidth > 0)
+  implicitWidth: !visible ? 0 : detailView
+    ? activeDetail.implicitWidth : chipRow.implicitWidth + Style.space(6) * 2
   implicitHeight: barSize
 
   Behavior on implicitWidth {
     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
   }
 
-  Row {
+  ActiveDetail {
+    id: activeDetail
+    objectName: "activeDetail"
+    anchors.fill: parent
+    visible: root.detailView && root.showActiveDetail && root.activeTopic !== ""
+    bar: root.bar
+    topic: root.activeTopic
+    textColor: root.textColor
+    textFont: root.textFont
+    maxWidth: Math.min(root.maxDetailWidth, Screen.width * 0.25)
+  }
+
+  Item {
     id: chipRow
+    visible: !root.detailView
     anchors.verticalCenter: parent.verticalCenter
     x: Style.space(6)
-    spacing: root.chipSpacing
+    height: root.barSize
+    implicitWidth: root.sessionChipsWidth + (root.hiddenSessions > 0
+      ? overflowSlot.width + (root.visibleSlots.length > 0 ? root.chipSpacing : 0) : 0)
 
     Repeater {
+      id: sessionRepeater
+      objectName: "sessionRepeater"
       model: ToplevelManager.toplevels
+      onItemAdded: root.slotsRevision++
+      onItemRemoved: root.slotsRevision++
 
       delegate: Item {
         id: slot
+        objectName: "agentSession"
 
         required property var modelData
         readonly property var session: root.sessionFor(modelData ? modelData.title : "",
@@ -209,9 +328,13 @@ BarWidget {
         readonly property color agentColor: agent === "codex" ? root.codexColor : root.claudeColor
         readonly property color agentStateColor: agentState === "ready" ? root.doneColor
           : attention ? root.attentionColor : agentColor
+        readonly property bool active: root.highlightActive && modelData === root.activeWindow
+        readonly property string workspaceLabel: root.showWorkspaceNumber
+          ? Context.workspaceLabel(root.workspaceFor(modelData)) : ""
         property string previousState: ""
 
-        visible: isSession && root.sessionWindows.indexOf(modelData) < root.shownSessions
+        visible: !root.detailView && isSession && root.visibleSessionWindows.indexOf(modelData) >= 0
+        x: root.sessionOffset(modelData)
         width: chip.width
         height: root.barSize
 
@@ -227,13 +350,16 @@ BarWidget {
 
         Rectangle {
           id: chip
+          objectName: "sessionChip"
           anchors.verticalCenter: parent.verticalCenter
           width: chipContent.width + Style.space(7) * 2
           height: Math.min(root.barSize - Style.space(4), chipContent.height + Style.space(4) * 2)
           radius: height / 2
-          color: Util.alpha(slot.agentStateColor, slot.busy ? 0.06 : 0.09)
-          border.width: 1
-          border.color: Util.alpha(slot.agentStateColor, slot.busy ? 0.18 : 0.3)
+          color: slot.active ? Util.alpha(Color.accent, 0.22)
+            : Util.alpha(slot.agentStateColor, slot.busy ? 0.06 : 0.09)
+          border.width: slot.active ? 2 : 1
+          border.color: slot.active ? Color.accent
+            : Util.alpha(slot.agentStateColor, slot.busy ? 0.18 : 0.3)
 
           // The bar only shows a tooltip for a target that reports itself
           // hovered, and centers the bubble under that target.
@@ -256,6 +382,20 @@ BarWidget {
             anchors.centerIn: parent
             spacing: Style.space(4)
 
+            Text {
+              objectName: "workspaceLabel"
+              anchors.verticalCenter: parent.verticalCenter
+              visible: slot.workspaceLabel !== ""
+              width: Math.min(implicitWidth, root.workspaceBadgeWidth)
+              text: slot.workspaceLabel
+              textFormat: Text.PlainText
+              color: root.textColor
+              font.family: root.textFont
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              elide: Text.ElideRight
+            }
+
             Item {
               anchors.verticalCenter: parent.verticalCenter
               width: root.ringSize
@@ -263,6 +403,7 @@ BarWidget {
 
               Shape {
                 id: spinner
+                objectName: "activityRing"
                 anchors.fill: parent
                 antialiasing: true
                 preferredRendererType: Shape.CurveRenderer
@@ -331,17 +472,22 @@ BarWidget {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               width: Math.min(implicitWidth, root.labelWidth)
+              objectName: "sessionName"
+              visible: !root.hideSessionNames
               text: slot.isSession ? slot.session.name : ""
+              textFormat: Text.PlainText
               color: root.textColor
               font.family: root.textFont
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
-              opacity: slot.busy ? 0.7 : 1.0
+              font.bold: slot.active
+              opacity: slot.busy && !slot.active ? 0.7 : 1.0
 
               Behavior on opacity { NumberAnimation { duration: 250 } }
             }
 
             Text {
+              objectName: "stateMark"
               anchors.verticalCenter: parent.verticalCenter
               visible: !slot.busy
               text: slot.attention ? "!" : "✓"
@@ -400,6 +546,7 @@ BarWidget {
               root.agentLabel(slot.agent)
                 + " · " + slot.session.name
                 + (slot.session.context ? " · " + slot.session.context : "")
+                + (slot.workspaceLabel ? " · Workspace " + slot.workspaceLabel : "")
                 + " · " + slot.session.detail)
             onExited: if (root.bar) root.bar.hideTooltip(chip)
           }
@@ -410,8 +557,11 @@ BarWidget {
     // Everything past the cap, so a burst of sessions cannot push the left
     // section of the bar over the clock.
     Item {
+      id: overflowSlot
+      objectName: "overflowSlot"
       anchors.verticalCenter: parent.verticalCenter
-      visible: root.hiddenSessions > 0
+      visible: !root.detailView && root.hiddenSessions > 0
+      x: root.sessionChipsWidth + (root.visibleSlots.length > 0 ? root.chipSpacing : 0)
       width: overflowChip.width
       height: root.barSize
 

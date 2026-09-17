@@ -22,7 +22,7 @@
       "codex",
       "sessions"
     ],
-    "allowMultiple": false,
+    "allowMultiple": true,
     "defaultSection": "left",
     "defaults": {
       "maxWidth": 180,
@@ -31,9 +31,64 @@
       "attentionColor": "",
       "claudeColor": "#d97757",
       "codexColor": "",
-      "extraAppIds": ""
+      "extraAppIds": "",
+      "view": "sessions",
+      "showWorkspaceNumber": false,
+      "showActiveDetail": false,
+      "highlightActive": false,
+      "maxDetailWidth": 480,
+      "hideSessionNames": false
     },
     "schema": [
+      {
+        "key": "view",
+        "type": "enum",
+        "label": "Widget view",
+        "options": [
+          "sessions",
+          "detail"
+        ],
+        "defaultValue": "sessions",
+        "description": "Use sessions for the pills. Add a second instance to the right bar section and choose detail for the focused conversation topic."
+      },
+      {
+        "key": "showWorkspaceNumber",
+        "type": "boolean",
+        "label": "Show workspace number",
+        "defaultValue": false,
+        "description": "Show the terminal\u2019s workspace before its agent logo. Named workspaces show their name instead."
+      },
+      {
+        "key": "hideSessionNames",
+        "type": "boolean",
+        "label": "Hide session names (compact pills)",
+        "defaultValue": false,
+        "description": "Keep the workspace badge, agent logo and activity indicators, with names available on hover. Fits more pills within the bar width; maxSessions still applies. Does not hide the right-hand detail."
+      },
+      {
+        "key": "showActiveDetail",
+        "type": "boolean",
+        "label": "Show active conversation detail",
+        "defaultValue": false,
+        "description": "Enable the detail view. Shows the focused agent\u2019s conversation title and project, not its latest action. Has no effect in the sessions view."
+      },
+      {
+        "key": "highlightActive",
+        "type": "boolean",
+        "label": "Highlight the active session",
+        "defaultValue": false,
+        "description": "Give the focused terminal a strong outline and bold label, keeping its pill visible even when other sessions overflow."
+      },
+      {
+        "key": "maxDetailWidth",
+        "type": "integer",
+        "label": "Maximum conversation detail width",
+        "min": 120,
+        "max": 1000,
+        "step": 20,
+        "defaultValue": 480,
+        "description": "Maximum width of the detail view in pixels; also capped at a quarter of the screen. Hover to read the complete topic."
+      },
       {
         "key": "maxWidth",
         "type": "integer",
