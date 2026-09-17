@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Make the existing 1–12 pill limit easier to find as “Maximum visible pills” beside compact mode; keep the default at four.
+- Detect local Codex sessions by foreground process identity, keeping idle pills visible without editing Codex's title settings, including after a bar restart.
+- Share process discovery across widget instances and keep title-based detection for remote or unsupported terminal layouts.
+- Regression coverage for spinner removal, already-idle sessions, process exit, unrelated terminals and failed/stale discovery.
+- Order pills numerically by workspace, updating on moves without recreating pills or resetting activity animations.
+
+- Optional compact pills hide session names and fit more sessions while keeping workspace badges, activity indicators, tooltips and click-to-focus.
+- Optional workspace badges before each agent logo, including named workspaces.
+- Optional active-session highlight, keeping the focused session out of overflow.
+- Optional right-hand conversation detail through a second widget instance.
+- All optional additions default to off and have settings in the widget panel.
+- Render conversation titles as plain text in both views.
+- Headless QML tests for focus, workspace changes, optional settings and detail visibility.
+
 ## 2.2.0
 
 - Tooltips work: the bar only shows them for a hovered chip, not for the widget as a whole.
