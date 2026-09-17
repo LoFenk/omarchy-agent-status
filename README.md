@@ -11,7 +11,8 @@ detected.
 
 ## Install
 
-Agent Status requires Omarchy 4 (Quattro) and a horizontal bar.
+Agent Status requires Omarchy 4 (Quattro), a horizontal bar and Python 3
+(included with Omarchy).
 
 ```bash
 omarchy plugin add https://github.com/mae240/omarchy-agent-status.git --enable
@@ -24,20 +25,23 @@ it to another section at any time:
 omarchy bar move io.github.mae240.agent-status --section right
 ```
 
-### Configure Codex
+### Codex works without configuration
 
-Claude Code works immediately. Codex needs its terminal title configured so
-the chip remains visible after a run finishes. Add this to
-`~/.codex/config.toml`:
+Local Codex sessions in ordinary terminal windows remain visible when they
+finish, including sessions already idle when the bar starts. The plugin
+identifies the foreground Codex process and uses its terminal title for the
+label and activity state. It never edits Codex's configuration.
+
+Optional: to show conversation names instead of the default project name,
+or to use title detection over SSH or in a multiplexer, configure a title
+with an explicit state in `~/.codex/config.toml`:
 
 ```toml
 [tui]
 terminal_title = ["run-state", "thread-title", "project-name"]
 ```
 
-Restart any Codex sessions that were already open. Without this setting, a
-Codex chip is visible only while the session is working and disappears when it
-becomes idle.
+Restart existing Codex sessions only if you change this optional title setting.
 
 ## Using the widget
 
@@ -81,6 +85,18 @@ the widget entry inside `~/.config/omarchy/shell.json`.
 | `claudeColor` | `#d97757` | Claude mark color |
 | `codexColor` | bar text | Codex mark color |
 | `extraAppIds` | empty | Additional comma-separated terminal app IDs |
+
+To change the number of pills, open the Agent Status widget settings and set
+**Maximum visible pills** to a value from **1 to 12**. The default is **4**.
+For example, to allow five pills on the left bar:
+
+```bash
+omarchy bar set io.github.mae240.agent-status maxSessions 5 --json --section left
+```
+
+The limit belongs to each widget instance. Extra sessions appear in the `+n`
+pill. Available screen space can reduce the visible count; enable **Hide
+session names (compact pills)** to fit more.
 
 Colors accept `#RGB`, `#RRGGBB`, `#RRGGBBAA`, `rgb(r,g,b)` and theme roles
 such as `accent`, `urgent` or `foreground`. Invalid colors fall back to their
@@ -166,10 +182,16 @@ focused window.
 
 ## How detection works
 
-Agent Status does not run commands, poll processes or contact either agent. It
-reads the titles and focus of open terminal windows from Quickshell's
-toplevel list. The optional workspace badge joins those windows to Hyprland
-workspace metadata using their Wayland handle, never by matching their titles.
+Agent Status reads titles and focus from Quickshell's toplevel list. It joins
+windows to Hyprland's workspace and process metadata using their Wayland
+handle, never by matching titles.
+
+One shared Python helper runs every 1.5 seconds to identify foreground Codex
+processes belonging to those windows. It reads local `/proc` process ancestry,
+terminal attachment and executable identity. It does not read conversations,
+credentials or Codex configuration, and makes no network calls. All bar
+instances share the probe; failed or stale probes clear the process fallback
+while explicit agent titles continue to work.
 
 ### Claude Code
 
@@ -189,7 +211,14 @@ Claude Code uses a static ready glyph and therefore always appears ready.
 
 ### Codex
 
-With the configuration shown above, Codex titles follow this pattern:
+Codex's default title has a braille spinner while working and a plain project
+name when idle. The process lookup keeps the idle pill visible and removes it
+after Codex exits, normally within 1.5 seconds. Custom titles with an activity
+spinner work too; the first title segment is the label, with remaining
+segments shown as context. The plugin does not guess that an ordinary terminal
+is Codex just because its title looks like a project or conversation.
+
+With the optional configuration shown above, titles follow this pattern:
 
 ```text
 <run state> | <thread title> | <project>
@@ -217,6 +246,12 @@ their titles resemble an agent session. Add a custom terminal app ID with the
 - Approval prompts are not reliably distinguishable from active work.
 - Terminal multiplexers must pass pane titles through to the window title;
   Claude Code sessions inside a multiplexer always appear ready.
+- Automatic idle Codex detection requires a local foreground CLI attached to
+  a terminal with a unique window PID. SSH, detached multiplexers, shared
+  terminal-server windows and inaccessible process metadata fall back to
+  titles; an explicit `run-state` title is needed for idle detection there.
+- Disabling Codex's title activity indicator prevents reliable busy/ready
+  detection. A process alone proves the session is open, not that it is busy.
 - The widget shows session state, not usage or rate limits. Use the built-in
   `omarchy.agents` widget for account usage.
 
@@ -249,24 +284,27 @@ omarchy plugin validate ~/.config/omarchy/plugins/io.github.mae240.agent-status
 omarchy plugin enable io.github.mae240.agent-status
 ```
 
-Detection lives in `sessionFor(title, appId)` in `AgentStatus.qml`. It returns
-either a Claude Code or Codex session with a `busy`, `ready` or `attention`
-state. Supporting another agent requires a new detection branch and a mark in
-`AgentMark.qml`; contributions are welcome.
+Detection lives in `sessionForWindow(window)` in `AgentStatus.qml`, combining
+`sessionFor(title, appId)` with the shared `internal/CodexProcesses.qml` probe
+and `scripts/codex_processes.py`. It returns either a Claude Code or Codex
+session with a `busy`, `ready` or `attention` state. Supporting another agent
+requires a new detection branch and a mark in `AgentMark.qml`.
 
 After changing QML, run `omarchy restart shell`. Plugin-file hot reload is not
 reliable in every shell version.
 
 ### Tests
 
-The QML tests use synthetic windows, workspace metadata and a minimal mock of
-the shell's widget API. They exercise the actual components without starting
+The QML tests use synthetic windows, process snapshots, workspace metadata and
+a minimal mock of the shell's widget API. Python tests exercise process
+discovery against a temporary `/proc` fixture. They run without starting
 Hyprland, changing your desktop, reading conversations or making network calls.
-Qt 6's QML Test runner and Qt Quick Shapes are required.
+Qt 6's QML Test runner, Qt Quick Shapes and Python 3 are required.
 
 ```bash
 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=basic QT_QUICK_BACKEND=software \
   /usr/lib/qt6/bin/qmltestrunner -import tests/mocks -input tests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 omarchy plugin validate .
 ```
 

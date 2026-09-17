@@ -3,6 +3,7 @@ import QtTest
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import ".." as Plugin
+import "../internal" as Internal
 
 TestCase {
   id: testCase
@@ -41,7 +42,11 @@ TestCase {
   }
   Component {
     id: hyprlandComponent
-    QtObject { property var wayland: null; property var workspace: null }
+    QtObject {
+      property var wayland: null
+      property var workspace: null
+      property var lastIpcObject: ({})
+    }
   }
   Component {
     id: widgetComponent
@@ -71,6 +76,9 @@ TestCase {
     ToplevelManager.activeToplevel = null
     ToplevelManager.toplevels.values = []
     Hyprland.toplevels.values = []
+    Internal.CodexProcesses.sessions = ({})
+    Internal.CodexProcesses.lastSuccess = Date.now()
+    Internal.CodexProcesses.probe.running = false
     widget = createTemporaryObject(widgetComponent, testCase)
     verify(widget !== null)
   }
@@ -88,6 +96,129 @@ TestCase {
       if (slot && slot.modelData === window) return slot
     }
     return null
+  }
+
+  function reportCodex(window, pid) {
+    for (var i = 0; i < Hyprland.toplevels.values.length; i++) {
+      if (Hyprland.toplevels.values[i].wayland === window)
+        Hyprland.toplevels.values[i].lastIpcObject = { pid: pid }
+    }
+    Internal.CodexProcesses.pendingRequest = Internal.CodexProcesses.request
+    var sessions = {}
+    sessions[pid] = true
+    Internal.CodexProcesses.acceptOutput(JSON.stringify(sessions))
+  }
+
+  function test_codex_without_config_survives_finishing_data() {
+    return [
+      { tag: "default project title", title: "storefront", name: "storefront" },
+      { tag: "custom title", title: "Checkout | storefront | weekly 90% left | gpt-6-astra", name: "Checkout" }
+    ]
+  }
+
+  function test_codex_without_config_survives_finishing(data) {
+    var window = createWindow("⠏ " + data.title, 3)
+    ToplevelManager.activeToplevel = window
+    reportCodex(window, 101)
+    var slot = slotFor(window)
+    compare(slot.agentState, "busy")
+    compare(slot.session.name, data.name)
+    var topic = widget.activeTopic
+    window.title = data.title
+    compare(slotFor(window), slot)
+    compare(slot.agentState, "ready")
+    tryCompare(slot, "visible", true)
+    compare(widget.sessionWindows.length, 1)
+    compare(widget.activeTopic, topic)
+    compare(findChild(slot, "stateMark").text, "✓")
+    window.title = "⠙ " + data.title
+    compare(slot.agentState, "busy")
+  }
+
+  function test_idle_codex_is_found_on_bar_startup_and_exit_removes_it() {
+    var window = createWindow("storefront", 3)
+    ToplevelManager.activeToplevel = window
+    compare(widget.sessionWindows.length, 0)
+    reportCodex(window, 101)
+    compare(widget.sessionWindows.length, 1)
+    compare(slotFor(window).agent, "codex")
+    compare(widget.activeTopic, "storefront")
+    widget.settings = { view: "detail", showActiveDetail: true }
+    tryCompare(widget, "visible", true)
+    // Codex exited, even if the shell hasn't replaced the plain title yet.
+    Internal.CodexProcesses.acceptOutput("{}")
+    compare(widget.sessionWindows.length, 0)
+    compare(widget.activeSession, null)
+    tryCompare(widget, "visible", false)
+  }
+
+  function test_plain_titles_are_not_guessed_or_shared_between_windows() {
+    var codex = createWindow("Same title", 1)
+    var ordinary = createWindow("Same title", 2)
+    var browser = createWindow("Same title", 3)
+    browser.appId = "browser"
+    reportCodex(codex, 101)
+    compare(widget.sessionWindows.length, 1)
+    compare(widget.sessionWindows[0], codex)
+    ToplevelManager.activeToplevel = ordinary
+    compare(widget.activeSession, null)
+    ToplevelManager.activeToplevel = browser
+    compare(widget.activeSession, null)
+  }
+
+  function test_process_probe_does_not_assign_shared_terminal_server_pid() {
+    var one = createWindow("storefront", 1)
+    var two = createWindow("another project", 2)
+    reportCodex(one, 101)
+    Hyprland.toplevels.values[1].lastIpcObject = { pid: 101 }
+    compare(Internal.CodexProcesses.request, "[]")
+    compare(widget.sessionWindows.length, 0)
+  }
+
+  function test_process_probe_is_shared_and_filters_custom_terminal_ids() {
+    var window = createWindow("storefront", 1)
+    window.appId = "custom-terminal"
+    Hyprland.toplevels.values[0].lastIpcObject = { pid: 101 }
+    compare(Internal.CodexProcesses.request, "[]")
+    widget.settings = { extraAppIds: "custom-terminal" }
+    compare(Internal.CodexProcesses.request, "[101]")
+    var second = createTemporaryObject(widgetComponent, testCase,
+      { settings: { extraAppIds: "custom-terminal", view: "detail", showActiveDetail: true } })
+    // Two subscribers must not be mistaken for two windows with a shared PID.
+    compare(Internal.CodexProcesses.request, "[101]")
+    reportCodex(window, 101)
+    ToplevelManager.activeToplevel = window
+    compare(widget.sessionWindows.length, 1)
+    compare(second.activeTopic, "storefront")
+    second.destroy()
+    wait(0)
+    compare(Internal.CodexProcesses.request, "[101]")
+    widget.settings = ({})
+    compare(Internal.CodexProcesses.request, "[]")
+  }
+
+  function test_failed_or_stale_probe_does_not_keep_idle_sessions() {
+    var window = createWindow("storefront", 1)
+    reportCodex(window, 101)
+    Internal.CodexProcesses.acceptOutput("not JSON")
+    compare(widget.sessionWindows.length, 0)
+    reportCodex(window, 101)
+    Internal.CodexProcesses.probe.exited(1, 0)
+    compare(widget.sessionWindows.length, 0)
+    reportCodex(window, 101)
+    Internal.CodexProcesses.lastSuccess = Date.now() - 6000
+    Internal.CodexProcesses.refresh()
+    compare(widget.sessionWindows.length, 0)
+  }
+
+  function test_old_probe_result_cannot_attach_to_replaced_window() {
+    var window = createWindow("storefront", 1)
+    reportCodex(window, 101)
+    var oldRequest = Internal.CodexProcesses.request
+    Hyprland.toplevels.values[0].lastIpcObject = { pid: 202 }
+    Internal.CodexProcesses.pendingRequest = oldRequest
+    Internal.CodexProcesses.acceptOutput('{"101":true}')
+    compare(widget.sessionWindows.length, 0)
   }
 
   function compareWindowOrder(expected) {

@@ -3,18 +3,21 @@ import QtQuick.Shapes
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import "SessionContext.js" as Context
+import "internal" as Internal
 import qs.Commons
 import qs.Ui
 
 // One chip per open coding-agent session, read off the terminal title each
 // agent writes. Claude Code writes "◐ <session>" while it works and
-// "✳ <session>" once it is done; Codex is asked (via ~/.codex/config.toml,
-// [tui] terminal_title) for "<Run state> | <thread title> | <project>". The
-// chip carries the vendor's own mark, a spinning arc while the agent thinks
-// and a pulse the moment the answer is ready.
+// "✳ <session>" once it is done. Codex's default spinner disappears when idle;
+// a local process probe keeps those sessions identifiable without configuring
+// Codex. Explicit run-state titles continue to work too.
 BarWidget {
   id: root
   moduleName: "io.github.mae240.agent-status"
+
+  Component.onCompleted: Internal.CodexProcesses.registerConsumer(root)
+  Component.onDestruction: Internal.CodexProcesses.unregisterConsumer(root)
 
   // Moon frames Claude cycles through while working, braille frames Codex uses
   // when its title carries no run state. Anything from the ready set means the
@@ -56,7 +59,7 @@ BarWidget {
   readonly property int maxDetailWidth: intSetting("maxDetailWidth", 480, 120, 1000)
   readonly property var activeWindow: ToplevelManager.activeToplevel
   readonly property var activeSession: activeWindow
-    ? sessionFor(activeWindow.title, activeWindow.appId) : null
+    ? sessionForWindow(activeWindow) : null
   readonly property string activeTopic: Context.topic(activeSession)
   readonly property real workspaceBadgeWidth: Style.font.caption * 3
 
@@ -75,7 +78,7 @@ BarWidget {
     var list = []
     var items = ToplevelManager.toplevels ? ToplevelManager.toplevels.values : []
     for (var i = 0; i < items.length; i++) {
-      if (items[i] && sessionFor(items[i].title, items[i].appId)) list.push(items[i])
+      if (items[i] && sessionForWindow(items[i])) list.push(items[i])
     }
     return Context.orderWindows(list, function(window) { return root.workspaceFor(window) })
   }
@@ -218,6 +221,33 @@ BarWidget {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
   }
 
+  function sessionForWindow(window) {
+    if (!window || !isTerminal(window.appId)) return null
+    var detected = sessionFor(window.title, window.appId)
+    var items = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].wayland !== window) continue
+      var ipc = items[i].lastIpcObject
+      if (ipc && Internal.CodexProcesses.sessions[String(ipc.pid)] === true) {
+        if (detected && detected.agent === "codex") return detected
+        // A live foreground Codex process establishes identity even with a
+        // plain project/title, including when the bar first starts up idle.
+        return codexTitle(window.title || "", "ready", "Ready")
+      }
+      break
+    }
+    return detected
+  }
+
+  function codexTitle(title, state, detail) {
+    var parts = title.split(/\s+\|\s+/)
+      .map(function(part) { return part.trim() })
+      .filter(function(part) { return part !== "" })
+    var name = parts.length > 0 && !isThreadId(parts[0]) ? parts[0] : "Codex"
+    var context = parts.slice(1).filter(function(part) { return !isThreadId(part) }).join(" · ")
+    return { agent: "codex", state: state, detail: detail, name: name, context: context }
+  }
+
   function sessionFor(title, appId) {
     if (!title || !isTerminal(appId)) return null
 
@@ -233,14 +263,7 @@ BarWidget {
       // config.toml lists them. Codex shows the raw thread id until it has
       // named the thread; the segment keeps its position so the chip does not
       // change identity the moment the thread gets a name.
-      var parts = runState[2].split(/\s+\|\s+/)
-        .map(function (part) { return part.trim() })
-        .filter(function (part) { return part !== "" })
-      var name = parts.length > 0 && !isThreadId(parts[0]) ? parts[0] : "Codex"
-      var context = parts.slice(1)
-        .filter(function (part) { return !isThreadId(part) })
-        .join(" · ")
-      return { agent: "codex", state: state, detail: word, name: name, context: context }
+      return codexTitle(runState[2], state, word)
     }
 
     if (title.length < 3 || title.charAt(1) !== " ") return null
@@ -251,10 +274,10 @@ BarWidget {
       return { agent: "claude", state: "busy", detail: "working…", name: name, context: "" }
     if (readyGlyphs.indexOf(glyph) >= 0)
       return { agent: "claude", state: "ready", detail: "done", name: name, context: "" }
-    // Codex, unconfigured: braille spinner and no state word to fall back on,
-    // so it can only ever be reported as busy.
+    // Default Codex titles use a spinner while working. Idle identity comes
+    // from sessionForWindow's process lookup instead of retaining stale titles.
     if (codexBusyGlyphs.indexOf(glyph) >= 0)
-      return { agent: "codex", state: "busy", detail: "working…", name: name, context: "" }
+      return codexTitle(name, "busy", "working…")
     return null
   }
 
@@ -266,7 +289,7 @@ BarWidget {
     var names = []
     for (var i = 0; i < sessionWindows.length; i++) {
       if (visibleSessionWindows.indexOf(sessionWindows[i]) >= 0) continue
-      var session = sessionFor(sessionWindows[i].title, sessionWindows[i].appId)
+      var session = sessionForWindow(sessionWindows[i])
       if (session) names.push(session.name)
     }
     return names.join(" · ")
@@ -316,8 +339,7 @@ BarWidget {
         objectName: "agentSession"
 
         required property var modelData
-        readonly property var session: root.sessionFor(modelData ? modelData.title : "",
-          modelData ? modelData.appId : "")
+        readonly property var session: root.sessionForWindow(modelData)
         readonly property bool isSession: session !== null
         // Empty while the window holds no session, so the first state a
         // session ever shows is not mistaken for a transition.

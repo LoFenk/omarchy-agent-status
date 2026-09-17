@@ -66,6 +66,16 @@
         "description": "Keep the workspace badge, agent logo and activity indicators, with names available on hover. Fits more pills within the bar width; maxSessions still applies. Does not hide the right-hand detail."
       },
       {
+        "key": "maxSessions",
+        "type": "integer",
+        "label": "Maximum visible pills",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "defaultValue": 4,
+        "description": "Choose 1–12 pills (default 4). Additional sessions appear in a +n pill. Compact mode fits more pills; available screen space may reduce the number shown."
+      },
+      {
         "key": "showActiveDetail",
         "type": "boolean",
         "label": "Show active conversation detail",
@@ -98,16 +108,6 @@
         "step": 10,
         "defaultValue": 180,
         "description": "Longer session names are elided at this width."
-      },
-      {
-        "key": "maxSessions",
-        "type": "integer",
-        "label": "Maximum sessions shown",
-        "min": 1,
-        "max": 12,
-        "step": 1,
-        "defaultValue": 4,
-        "description": "Sessions past this count are summed up in one \"+n\" chip. The cap drops further on narrow screens, so the bar cannot grow into its center section."
       },
       {
         "key": "doneColor",
