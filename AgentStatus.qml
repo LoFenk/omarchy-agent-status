@@ -14,7 +14,7 @@ import qs.Ui
 // Codex. Explicit run-state titles continue to work too.
 BarWidget {
   id: root
-  moduleName: "io.github.mae240.agent-status"
+  moduleName: "io.github.lofenk.agent-status"
 
   Component.onCompleted: Internal.CodexProcesses.registerConsumer(root)
   Component.onDestruction: Internal.CodexProcesses.unregisterConsumer(root)

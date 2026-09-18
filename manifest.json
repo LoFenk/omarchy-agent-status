@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.mae240.agent-status",
-  "name": "Agent Status",
-  "version": "2.2.0",
-  "author": "Matteo Moser",
+  "id": "io.github.lofenk.agent-status",
+  "name": "Agent Status (LoFenk)",
+  "version": "2.3.0",
+  "author": "LoFenk; originally Matteo Moser",
   "license": "MIT",
   "description": "Shows open Claude Code and Codex sessions with the agent's mark and a live working/done indicator",
   "kinds": [
@@ -13,7 +13,7 @@
     "barWidget": "AgentStatus.qml"
   },
   "barWidget": {
-    "displayName": "Agent Status",
+    "displayName": "Agent Status (LoFenk)",
     "description": "Open Claude Code / Codex sessions with working, done and attention state",
     "category": "AI",
     "aliases": [

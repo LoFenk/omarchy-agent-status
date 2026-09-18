@@ -1,4 +1,4 @@
-# Agent Status
+# Agent Status (LoFenk)
 
 See every open Claude Code and Codex session at a glance, directly in the
 Omarchy bar. Each session gets its own chip with the agent mark, session name
@@ -9,21 +9,45 @@ and live working or ready state.
 **Supported agents:** Claude Code and Codex. No other coding agents are
 detected.
 
+This is the [LoFenk fork](https://github.com/LoFenk/omarchy-agent-status) of
+[Matteo Moser's Agent Status](https://github.com/mae240/omarchy-agent-status).
+It adds workspace context, compact pills, a focused conversation topic and
+automatic detection of idle local Codex sessions. It has its own plugin ID,
+`io.github.lofenk.agent-status`, and keeps the upstream MIT license and credit.
+
 ## Install
 
-Agent Status requires Omarchy 4 (Quattro), a horizontal bar and Python 3
-(included with Omarchy).
+Agent Status requires Omarchy 4 (Quattro), a horizontal bar and Python 3.9+
+(included with Omarchy). Everything lives in this one repository; no separate
+Claude/Codex extensions, hooks, services, API keys or build step are needed.
+
+On a fresh computer, install the fork and apply the workspace layout:
 
 ```bash
-omarchy plugin add https://github.com/mae240/omarchy-agent-status.git --enable
+omarchy plugin add https://github.com/LoFenk/omarchy-agent-status.git --enable
+python3 ~/.config/omarchy/plugins/io.github.lofenk.agent-status/scripts/configure.py preset
 ```
 
-The widget is added to the left side of the bar, next to the workspaces. Move
-it to another section at any time:
+The optional preset adds compact pills after your workspaces on the left
+(workspace numbers, active-session highlighting, up to five pills), and a
+focused conversation topic at the start of the right section (up to 480 px).
+It preserves other widgets, backs up `~/.config/omarchy/shell.json` before
+changing it, and is safe to run again. Existing fork instances are consolidated
+into those two views; preset options are reset, while colors and other settings
+on the first instance of each view are kept. Upstream instances are left alone.
+Add `--dry-run` to preview the proposed configuration without saving it.
+
+Skip the second command for the original single-widget layout. Move that
+widget to another section at any time:
 
 ```bash
-omarchy bar move io.github.mae240.agent-status --section right
+omarchy bar move io.github.lofenk.agent-status --section right
 ```
+
+The shell normally picks up layout changes automatically. If it does not,
+run `omarchy restart shell`. This package was tested on Omarchy 4.0.3-1;
+other Omarchy 4 versions have not been tested. For an existing upstream install,
+use the migration instructions below instead.
 
 ### Codex works without configuration
 
@@ -91,7 +115,7 @@ To change the number of pills, open the Agent Status widget settings and set
 For example, to allow five pills on the left bar:
 
 ```bash
-omarchy bar set io.github.mae240.agent-status maxSessions 5 --json --section left
+omarchy bar set io.github.lofenk.agent-status maxSessions 5 --json --section left
 ```
 
 The limit belongs to each widget instance. Extra sessions appear in the `+n`
@@ -140,14 +164,14 @@ The corresponding entries inside your existing `bar.layout` look like this
 {
   "left": [
     {
-      "id": "io.github.mae240.agent-status",
+      "id": "io.github.lofenk.agent-status",
       "showWorkspaceNumber": true,
       "highlightActive": true
     }
   ],
   "right": [
     {
-      "id": "io.github.mae240.agent-status",
+      "id": "io.github.lofenk.agent-status",
       "view": "detail",
       "showActiveDetail": true,
       "maxDetailWidth": 480
@@ -159,10 +183,10 @@ The corresponding entries inside your existing `bar.layout` look like this
 You can also toggle a configured instance from the CLI:
 
 ```bash
-omarchy bar set io.github.mae240.agent-status showWorkspaceNumber true --json --section left
-omarchy bar set io.github.mae240.agent-status highlightActive true --json --section left
-omarchy bar set io.github.mae240.agent-status hideSessionNames true --json --section left
-omarchy bar set io.github.mae240.agent-status showActiveDetail false --json --section right
+omarchy bar set io.github.lofenk.agent-status showWorkspaceNumber true --json --section left
+omarchy bar set io.github.lofenk.agent-status highlightActive true --json --section left
+omarchy bar set io.github.lofenk.agent-status hideSessionNames true --json --section left
+omarchy bar set io.github.lofenk.agent-status showActiveDetail false --json --section right
 ```
 
 The detail comes directly from the agent's **conversation title**, plus the
@@ -255,33 +279,59 @@ their titles resemble an agent session. Add a custom terminal app ID with the
 - The widget shows session state, not usage or rate limits. Use the built-in
   `omarchy.agents` widget for account usage.
 
+## Update
+
+```bash
+omarchy plugin update io.github.lofenk.agent-status
+```
+
+Updates come from the LoFenk fork's default branch. Numbered releases are
+listed on the [releases page](https://github.com/LoFenk/omarchy-agent-status/releases).
+Updating the plugin does not reapply the preset or change your widget settings.
+
+## Migrate an existing installation
+
+Earlier copies of this fork shared upstream's `io.github.mae240.agent-status`
+ID, and versions before 2.1.0 used `mae.agent-status`. Install this fork
+**without enabling another instance**, then migrate the configured IDs:
+
+```bash
+omarchy plugin add https://github.com/LoFenk/omarchy-agent-status.git --yes
+python3 ~/.config/omarchy/plugins/io.github.lofenk.agent-status/scripts/configure.py migrate
+```
+
+`--yes` accepts Omarchy's installation prompt; without `--enable`, this command
+only installs the code. Migration activates the fork in the same positions,
+retaining all existing instance settings and saving a shell-config backup.
+It refuses to change a layout that already contains both upstream and fork
+widgets, so you can choose which instances to keep in bar settings first.
+The original plugin directory is left untouched and can remain installed but
+disabled. Keep a copy before removing it if you have local code changes.
+After verifying the fork, you can remove the old installation with
+`omarchy plugin remove io.github.mae240.agent-status` (or `mae.agent-status`).
+
+Run the `preset` command from Install afterward only if you want the compact
+two-view layout. Migration by itself preserves your existing appearance.
+
 ## Remove
 
 ```bash
-omarchy plugin remove io.github.mae240.agent-status
+omarchy plugin remove io.github.lofenk.agent-status
 ```
 
-This disables the widget, removes its entry from
-`~/.config/omarchy/shell.json` and deletes the plugin directory. The plugin
-writes nothing else to the system.
-
-## Upgrade from `mae.agent-status`
-
-Versions before 2.1.0 used the ID `mae.agent-status`. Replace the old plugin
-with the current one:
-
-```bash
-omarchy plugin remove mae.agent-status
-omarchy plugin add https://github.com/mae240/omarchy-agent-status.git --enable
-```
+This disables the widget, removes its layout entries and deletes the plugin
+directory. Configuration backups created by `configure.py` remain beside
+`shell.json`; the script prints each backup path. To undo a layout change,
+restore that backup (this also restores any other shell settings as they were
+at that time).
 
 ## Development
 
 ```bash
-git clone https://github.com/mae240/omarchy-agent-status.git \
-  ~/.config/omarchy/plugins/io.github.mae240.agent-status
-omarchy plugin validate ~/.config/omarchy/plugins/io.github.mae240.agent-status
-omarchy plugin enable io.github.mae240.agent-status
+git clone https://github.com/LoFenk/omarchy-agent-status.git \
+  ~/.config/omarchy/plugins/io.github.lofenk.agent-status
+omarchy plugin validate ~/.config/omarchy/plugins/io.github.lofenk.agent-status
+omarchy plugin enable io.github.lofenk.agent-status
 ```
 
 Detection lives in `sessionForWindow(window)` in `AgentStatus.qml`, combining
@@ -297,7 +347,8 @@ reliable in every shell version.
 
 The QML tests use synthetic windows, process snapshots, workspace metadata and
 a minimal mock of the shell's widget API. Python tests exercise process
-discovery against a temporary `/proc` fixture. They run without starting
+discovery against a temporary `/proc` fixture and verify preset/migration
+behavior, configuration preservation and backups. They run without starting
 Hyprland, changing your desktop, reading conversations or making network calls.
 Qt 6's QML Test runner, Qt Quick Shapes and Python 3 are required.
 

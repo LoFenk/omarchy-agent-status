@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-09-17
+
+- Publish the LoFenk fork under its own `io.github.lofenk.agent-status` plugin ID, so it can coexist with upstream and updates come from the correct repository.
+- Add a repeatable compact-workspace layout preset and an explicit migration command that preserves existing widget settings. Both back up the shell configuration before changes.
+- Update installation, migration, update and development instructions for this fork.
 
 - Make the existing 1–12 pill limit easier to find as “Maximum visible pills” beside compact mode; keep the default at four.
 - Detect local Codex sessions by foreground process identity, keeping idle pills visible without editing Codex's title settings, including after a bar restart.
